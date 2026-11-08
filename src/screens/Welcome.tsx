@@ -66,7 +66,10 @@ export default function Welcome() {
         </form>
 
         <form className="card pad stack gap-12" onSubmit={create}>
-          <h2 className="h3">Or start a new one</h2>
+          <div>
+            <h2 className="h3">Or start a new one</h2>
+            <p className="sub" style={{ margin: '4px 0 0' }}>Only if nobody in your family has set one up yet. Got a code? Use it above instead.</p>
+          </div>
           <div>
             <label className="field-label" htmlFor="hh-name">Household name</label>
             <input id="hh-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />

@@ -4,6 +4,7 @@ import { Icon } from '../components/Icon';
 import { Sheet, SheetHead, StoreBadge, Switch, TabBar } from '../components/ui';
 import { useApp, useToast } from '../lib/app';
 import { APP_URL, supabase } from '../lib/supabase';
+import type { Household } from '../lib/types';
 import { STORE_COLORS, initials } from '../lib/util';
 
 const STORE_ICONS = ['store', 'shopping-cart', 'basket', 'warehouse', 'tag', 'building-storefront'];
@@ -17,9 +18,55 @@ export default function Family() {
   const [editingMe, setEditingMe] = useState(false);
   const [myName, setMyName] = useState(profile?.full_name ?? '');
   const [addingStore, setAddingStore] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [joining, setJoining] = useState(false);
   const isAdmin = role === 'admin';
 
   if (!household) return null;
+
+  // Leaving is offered only while you belong to another household too.
+  // As the only member (and admin) you delete it; as a regular member you leave it.
+  const soleMember = members.every((m) => m.user_id === userId);
+  const deletesHousehold = soleMember && isAdmin;
+  const canLeave = app.households.length > 1 && (!isAdmin || soleMember);
+
+  const joinWithCode = async (e: FormEvent) => {
+    e.preventDefault();
+    const clean = code.trim().toUpperCase();
+    if (!clean) return;
+    setJoining(true);
+    const { data, error } = await supabase.rpc('join_household', { p_invite_code: clean });
+    setJoining(false);
+    if (error) {
+      toast(error.message.includes('does not match') ? "That code doesn't match a household. Check it and try again." : error.message);
+      return;
+    }
+    const joined = data as Household;
+    const already = app.households.some((h) => h.id === joined.id);
+    if (!already) await app.reloadHouseholds();
+    app.switchHousehold(joined.id);
+    toast(already ? `You're already in ${joined.name}` : `Joined ${joined.name}`);
+    setCode('');
+    setJoinOpen(false);
+  };
+
+  const leave = async () => {
+    const msg = deletesHousehold
+      ? `Delete ${household.name}? You're its only member, so its lists, repeats and spending are deleted too.`
+      : `Leave ${household.name}? You'll stop seeing its lists.`;
+    if (!window.confirm(msg)) return;
+    const { error } = deletesHousehold
+      ? await supabase.from('households').delete().eq('id', household.id)
+      : await supabase.from('household_members').delete().eq('household_id', household.id).eq('user_id', userId);
+    if (error) {
+      toast(error.message);
+      return;
+    }
+    const name = household.name;
+    await app.reloadHouseholds();
+    toast(deletesHousehold ? `Deleted ${name}` : `Left ${name}`);
+  };
 
   const copyCode = async () => {
     try {
@@ -149,6 +196,44 @@ export default function Family() {
           </div>
         </section>
 
+        <section className="card pad" aria-labelledby="join-h" style={{ paddingTop: joinOpen ? 14 : 8, paddingBottom: joinOpen ? 16 : 8 }}>
+          {joinOpen ? (
+            <form className="stack gap-10" onSubmit={joinWithCode}>
+              <h2 id="join-h" className="h3" style={{ fontSize: 16 }}>Join with a code</h2>
+              <p className="sub" style={{ margin: 0, lineHeight: 1.45 }}>
+                Enter the invite code someone in your family shared. You'll see their lists, and you can switch between households from the Lists tab.
+              </p>
+              <label className="sr-only" htmlFor="join-code">Invite code</label>
+              <input
+                id="join-code"
+                className="input"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                autoFocus
+                autoCapitalize="characters"
+                autoComplete="off"
+                placeholder="Invite code"
+                style={{ fontFamily: 'ui-monospace, Menlo, monospace', letterSpacing: '0.12em', fontWeight: 700 }}
+              />
+              <div className="row" style={{ gap: 8 }}>
+                <button type="button" className="btn btn-outline" onClick={() => { setJoinOpen(false); setCode(''); }}>Cancel</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} disabled={!code.trim() || joining}>{joining ? 'Joining…' : 'Join household'}</button>
+              </div>
+            </form>
+          ) : (
+            <button type="button" className="row" onClick={() => setJoinOpen(true)} style={{ width: '100%', border: 'none', background: 'none', padding: 0, minHeight: 52, textAlign: 'left' }}>
+              <span className="badge" aria-hidden="true" style={{ width: 36, height: 36, borderRadius: 11, background: 'var(--green-tint)', color: 'var(--green)' }}>
+                <Icon name="users" size={18} />
+              </span>
+              <span className="grow">
+                <span id="join-h" style={{ display: 'block', fontSize: 15, fontWeight: 700 }}>Join with a code</span>
+                <span className="sub">Got an invite code from family?</span>
+              </span>
+              <Icon name="chevron-right" size={18} style={{ color: 'var(--muted)' }} />
+            </button>
+          )}
+        </section>
+
         <section className="card" aria-labelledby="st-h" style={{ padding: '6px 6px 6px 0' }}>
           <div className="between" style={{ padding: '6px 10px 4px 16px' }}>
             <h2 id="st-h" className="h3" style={{ fontSize: 16 }}>Your stores</h2>
@@ -181,6 +266,14 @@ export default function Family() {
             </div>
             <Switch checked={showHindi} onChange={setShowHindi} label="Show Hindi names" />
           </div>
+          {canLeave && (
+            <div style={{ borderTop: '1px solid var(--line-2)' }}>
+              <button type="button" className="row" onClick={leave} style={{ width: '100%', border: 'none', background: 'none', padding: '0 16px', minHeight: 52, fontWeight: 600, color: 'var(--danger)' }}>
+                <Icon name={deletesHousehold ? 'trash' : 'logout'} size={18} />
+                {deletesHousehold ? `Delete ${household.name}` : `Leave ${household.name}`}
+              </button>
+            </div>
+          )}
           <div style={{ borderTop: '1px solid var(--line-2)' }}>
             <button type="button" className="row" onClick={() => supabase.auth.signOut()} style={{ width: '100%', border: 'none', background: 'none', padding: '0 16px', minHeight: 52, fontWeight: 600, color: 'var(--danger)' }}>
               <Icon name="logout" size={18} /> Sign out
