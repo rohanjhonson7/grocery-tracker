@@ -99,6 +99,11 @@ export default function ListDetail() {
               {info.note && <span>Note: {info.note}</span>}
             </div>
           )}
+          {!done && (
+            <div className="sub" style={{ fontSize: 12, marginTop: 2 }}>
+              Added by {personName(i.added_by)} · {timeAgo(i.created_at)}
+            </div>
+          )}
           {done && (
             <div className="sub" style={{ fontSize: 12 }}>
               Bought by {personName(i.bought_by)} · {timeAgo(i.bought_at)}
@@ -217,7 +222,9 @@ export default function ListDetail() {
 }
 
 function EditItemSheet({ item, onClose }: { item: ListItem; onClose: () => void }) {
-  const { itemInfo, catalog, customItems, updateItem, deleteItem, showHindi } = useApp();
+  const { itemInfo, catalog, customItems, updateItem, deleteItem, showHindi, profiles, userId } = useApp();
+  const adder = item.added_by === userId ? 'you' : (item.added_by && profiles[item.added_by]?.full_name) || 'someone';
+  const addedOn = new Date(item.created_at).toLocaleString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const info = itemInfo(item);
   const source = item.catalog_item_id
     ? catalog.find((c) => c.id === item.catalog_item_id)
@@ -239,6 +246,10 @@ function EditItemSheet({ item, onClose }: { item: ListItem; onClose: () => void 
         <div className="grow">
           <h2 className="h2">{info.name}</h2>
           {showHindi && info.hindi && <div lang="hi" className="item-hi">{info.hindi}</div>}
+          <div className="sub" style={{ fontSize: 12, marginTop: 2 }}>
+            Added by {adder} · {addedOn}
+            {item.status === 'bought' && item.bought_at && ` · bought by ${item.bought_by === userId ? 'you' : (item.bought_by && profiles[item.bought_by]?.full_name) || 'someone'}`}
+          </div>
         </div>
       </SheetHead>
       <div className="sheet-body">

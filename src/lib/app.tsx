@@ -308,6 +308,7 @@ export function AppProvider({ session, children }: { session: Session; children:
         return listIds.has(row.list_id) ? [...without, row] : without;
       });
     };
+    let subscribedOnce = false;
     const channel = supabase
       // Unique per subscription so a quick unmount/remount never reuses a closing channel.
       .channel(`household-${householdId}-${Math.random().toString(36).slice(2, 8)}`)
@@ -321,12 +322,49 @@ export function AppProvider({ session, children }: { session: Session; children:
       .on('postgres_changes', { event: '*', schema: 'public', table: 'household_members', filter: `household_id=eq.${householdId}` }, () => {
         void refreshMembers();
       })
-      .subscribe((status) => setLive(status === 'SUBSCRIBED'));
+      .subscribe((status) => {
+        setLive(status === 'SUBSCRIBED');
+        // A re-subscribe means the socket dropped (phone slept, network blip): catch up on what we missed.
+        if (status === 'SUBSCRIBED') {
+          if (subscribedOnce) void refreshLists();
+          subscribedOnce = true;
+        }
+      });
     return () => {
       setLive(false);
       void supabase.removeChannel(channel);
     };
   }, [householdId, refreshLists, refreshRecurring, refreshMembers]);
+
+  // Phones suspend background tabs and drop the live connection, so reload when the app comes back.
+  useEffect(() => {
+    if (!householdId) return;
+    const catchUp = () => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshLists();
+      void refreshRecurring();
+      void refreshCustom();
+    };
+    document.addEventListener('visibilitychange', catchUp);
+    window.addEventListener('online', catchUp);
+    return () => {
+      document.removeEventListener('visibilitychange', catchUp);
+      window.removeEventListener('online', catchUp);
+    };
+  }, [householdId, refreshLists, refreshRecurring, refreshCustom]);
+
+  // Your own items aren't live-synced. If a list or repeat points at one this device hasn't
+  // loaded yet (added on another phone), fetch them again so it shows its name.
+  const triedCustom = useRef(new Set<string>());
+  useEffect(() => {
+    const known = new Set(customItems.map((c) => c.id));
+    const missing = [...items, ...recurring]
+      .map((i) => i.custom_item_id)
+      .filter((id): id is string => !!id && !known.has(id) && !triedCustom.current.has(id));
+    if (!missing.length) return;
+    missing.forEach((id) => triedCustom.current.add(id));
+    void refreshCustom();
+  }, [items, recurring, customItems, refreshCustom]);
 
   // ---- lookups
 
@@ -344,7 +382,8 @@ export function AppProvider({ session, children }: { session: Session; children:
       const categoryId = cat?.category_id ?? cus?.category_id ?? null;
       const { note, auto } = splitNote(li.notes);
       return {
-        name: li.item_name || cus?.name || cat?.name || 'Item',
+        // "…" only shows for the moment it takes to fetch an item added on another device.
+        name: li.item_name || cus?.name || cat?.name || (li.custom_item_id || li.catalog_item_id ? '…' : 'Item'),
         hindi: cat?.name_hindi ?? null,
         category: categoryId ? categoryById.get(categoryId) ?? null : null,
         note,
