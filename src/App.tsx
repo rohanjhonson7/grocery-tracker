@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router';
 import { AppProvider, useApp, useSession } from './lib/app';
 import { Loading } from './components/ui';
+import { UpdateBanner } from './components/UpdateBanner';
 import SignIn from './screens/SignIn';
 import Welcome from './screens/Welcome';
 import ListsHome from './screens/ListsHome';
@@ -14,6 +15,7 @@ export default function App() {
   const session = useSession();
   return (
     <div className="app">
+      <UpdateBanner />
       {session === undefined ? (
         <Loading />
       ) : session === null ? (
